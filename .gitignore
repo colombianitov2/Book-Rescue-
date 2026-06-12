@@ -1,0 +1,47 @@
+# Build outputs
+bin/
+obj/
+publish/
+installer/
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+
+# Offline runtime and bundled models
+runtime/
+BookRescue.App/bin/
+BookRescue.App/obj/
+
+# Generated conversion/test outputs
+verification/
+smoke-test/
+*-output/
+*output*/
+comparacion_visual_reconstruida/
+fallback_visual_regional/
+imagenes_rescatadas/
+_tmpWriterTest/
+ai-process-cleanup-test/
+table-format-lab/
+typst-smoke-test/
+
+# Local user/app state
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.vscode/
+
+# Logs and diagnostics
+*.log
+*.tmp
+*.temp
+*.bak
+*.pdb
+
+# OS files
+Thumbs.db
+Desktop.ini
