@@ -1,3 +1,4 @@
+using BookRescue.App.Models;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -11,6 +12,7 @@ namespace BookRescue.App.Services;
 public sealed class PerfectDocxReconstructor
 {
     private const long EmusPerInch = 914400L;
+    private const int DefaultMarginTwips = 360;
 
     public void WriteDocx(
         string outputDocxPath,
@@ -35,57 +37,101 @@ public sealed class PerfectDocxReconstructor
                 body.Append(new Paragraph(new Run(new Break { Type = BreakValues.Page })));
             }
 
-            AppendPageHeader(body, layouts[i]);
-            AppendVisibleText(body, layouts[i]);
-            AppendRegionalImages(mainPart, body, layouts[i]);
+            AppendPageContent(mainPart, body, layouts[i]);
             AppendEmergencyFullPageFallback(mainPart, body, layouts[i]);
         }
 
-        body.Append(new SectionProperties(
-            new PageSize { Width = 12240U, Height = 15840U },
-            new PageMargin { Top = 360, Bottom = 360, Left = 360U, Right = 360U, Header = 180U, Footer = 180U, Gutter = 0U }));
+        body.Append(CreateSectionProperties(layouts[0]));
         mainPart.Document.Save();
     }
 
-    private static void AppendPageHeader(Body body, HeavyPageLayout layout)
+    private static void AppendPageContent(MainDocumentPart mainPart, Body body, HeavyPageLayout layout)
     {
-        body.Append(new Paragraph(
-            new ParagraphProperties(
-                new Shading { Val = ShadingPatternValues.Clear, Fill = layout.Background.Hex.TrimStart('#') },
-                new SpacingBetweenLines { Before = "80", After = "80" }),
-            new Run(
-                new RunProperties(new Bold(), new FontSize { Val = "20" }),
-                new Text($"Página {layout.PageNumber}") { Space = SpaceProcessingModeValues.Preserve })));
-    }
+        var lines = TextCleanupService.BuildOrderedLineBoxes(layout.Page, layout.Ocr)
+            .Where(line => line.Confidence >= 35 && !string.IsNullOrWhiteSpace(line.Text))
+            .Select(line => PageElement.FromText(line))
+            .ToList();
 
-    private static void AppendVisibleText(Body body, HeavyPageLayout layout)
-    {
-        foreach (var line in TextCleanupService.BuildOrderedLineBoxes(layout.Page, layout.Ocr)
-                     .Where(line => line.Confidence >= 35 && !string.IsNullOrWhiteSpace(line.Text)))
+        var images = layout.PageImages
+            .Where(image => File.Exists(image.ImagePath))
+            .Select(PageElement.FromImage)
+            .ToList();
+
+        var elements = lines
+            .Concat(images)
+            .OrderBy(element => element.Y)
+            .ThenBy(element => element.X)
+            .ToList();
+
+        var previousBottom = 0f;
+        foreach (var element in elements)
         {
-            var isHeading = TextCleanupService.IsLikelyHeading(line.Text);
-            var runProperties = new RunProperties(new FontSize { Val = isHeading ? "26" : "21" });
-            if (isHeading)
+            var spacingBefore = EstimateSpacingBefore(layout.Page, previousBottom, element.Y);
+            if (element.Line is not null)
             {
-                runProperties.Append(new Bold());
+                AppendPositionedTextLine(body, layout, element.Line, spacingBefore);
+            }
+            else if (element.Image is not null)
+            {
+                AppendPositionedImage(mainPart, body, layout, element.Image, spacingBefore);
             }
 
-            body.Append(new Paragraph(
-                new ParagraphProperties(
-                    new Justification { Val = isHeading ? JustificationValues.Center : JustificationValues.Both },
-                    new SpacingBetweenLines { Before = isHeading ? "150" : "20", After = isHeading ? "110" : "70" }),
-                new Run(
-                    runProperties,
-                    new Text(line.Text.Trim()) { Space = SpaceProcessingModeValues.Preserve })));
+            previousBottom = Math.Max(previousBottom, element.Bottom);
         }
     }
 
-    private static void AppendRegionalImages(MainDocumentPart mainPart, Body body, HeavyPageLayout layout)
+    private static void AppendPositionedTextLine(Body body, HeavyPageLayout layout, OcrLineBox line, int spacingBefore)
     {
-        foreach (var image in layout.PageImages.OrderBy(image => image.Y).ThenBy(image => image.X))
+        var text = line.Text.Trim();
+        if (string.IsNullOrWhiteSpace(text))
         {
-            AppendImagePath(mainPart, body, image.ImagePath, maxWidthInches: 6.8d, maxHeightInches: 5.8d);
+            return;
         }
+
+        var isHeading = TextCleanupService.IsLikelyHeading(text);
+        var runProperties = new RunProperties(new FontSize { Val = EstimateFontHalfPoints(layout.Page, line, isHeading).ToString() });
+        if (isHeading)
+        {
+            runProperties.Append(new Bold());
+        }
+
+        var paragraphProperties = new ParagraphProperties(
+            new Indentation { Left = EstimateLeftIndentTwips(layout.Page, line.X).ToString() },
+            new Justification { Val = isHeading && IsCentered(layout.Page, line) ? JustificationValues.Center : JustificationValues.Left },
+            new SpacingBetweenLines
+            {
+                Before = spacingBefore.ToString(),
+                After = isHeading ? "80" : "20",
+                LineRule = LineSpacingRuleValues.Auto
+            });
+
+        body.Append(new Paragraph(
+            paragraphProperties,
+            new Run(
+                runProperties,
+                new Text(text) { Space = SpaceProcessingModeValues.Preserve })));
+    }
+
+    private static void AppendPositionedImage(
+        MainDocumentPart mainPart,
+        Body body,
+        HeavyPageLayout layout,
+        RescuedImageInfo image,
+        int spacingBefore)
+    {
+        var (widthInches, heightInches) = EstimateImageSizeInches(layout.Page, image);
+        var paragraphProperties = new ParagraphProperties(
+            new Indentation { Left = EstimateLeftIndentTwips(layout.Page, image.X).ToString() },
+            new Justification { Val = JustificationValues.Left },
+            new SpacingBetweenLines { Before = spacingBefore.ToString(), After = "80" });
+
+        AppendImagePath(
+            mainPart,
+            body,
+            image.ImagePath,
+            widthInches,
+            heightInches,
+            paragraphProperties);
     }
 
     private static void AppendEmergencyFullPageFallback(MainDocumentPart mainPart, Body body, HeavyPageLayout layout)
@@ -98,10 +144,22 @@ public sealed class PerfectDocxReconstructor
         var imagePath = !string.IsNullOrWhiteSpace(layout.Page.RestoredImagePath) && File.Exists(layout.Page.RestoredImagePath)
             ? layout.Page.RestoredImagePath
             : layout.Page.OriginalImagePath;
-        AppendImagePath(mainPart, body, imagePath, maxWidthInches: 7.55d, maxHeightInches: 10.25d);
+        AppendImagePath(
+            mainPart,
+            body,
+            imagePath,
+            maxWidthInches: 7.55d,
+            maxHeightInches: 10.25d,
+            new ParagraphProperties(new Justification { Val = JustificationValues.Center }));
     }
 
-    private static void AppendImagePath(MainDocumentPart mainPart, Body body, string imagePath, double maxWidthInches, double maxHeightInches)
+    private static void AppendImagePath(
+        MainDocumentPart mainPart,
+        Body body,
+        string imagePath,
+        double maxWidthInches,
+        double maxHeightInches,
+        ParagraphProperties paragraphProperties)
     {
         if (!File.Exists(imagePath))
         {
@@ -125,9 +183,7 @@ public sealed class PerfectDocxReconstructor
         }
 
         body.Append(new Paragraph(
-            new ParagraphProperties(
-                new Justification { Val = JustificationValues.Center },
-                new SpacingBetweenLines { Before = "0", After = "0" }),
+            paragraphProperties,
             new Run(CreateDrawing(
                 mainPart.GetIdOfPart(imagePart),
                 Path.GetFileName(imagePath),
@@ -166,5 +222,117 @@ public sealed class PerfectDocxReconstructor
     {
         using var image = Cv2.ImRead(imagePath, ImreadModes.Unchanged);
         return image.Empty() ? (900, 1200) : (image.Width, image.Height);
+    }
+
+    private static SectionProperties CreateSectionProperties(HeavyPageLayout layout)
+    {
+        var widthTwips = Math.Clamp((int)MathF.Round(layout.Page.WidthPoints * 20f), 720, 31680);
+        var heightTwips = Math.Clamp((int)MathF.Round(layout.Page.HeightPoints * 20f), 720, 31680);
+        return new SectionProperties(
+            new PageSize { Width = (UInt32Value)(uint)widthTwips, Height = (UInt32Value)(uint)heightTwips },
+            new PageMargin
+            {
+                Top = DefaultMarginTwips,
+                Bottom = DefaultMarginTwips,
+                Left = DefaultMarginTwips,
+                Right = DefaultMarginTwips,
+                Header = 180U,
+                Footer = 180U,
+                Gutter = 0U
+            });
+    }
+
+    private static int EstimateLeftIndentTwips(BookPageInfo page, float x)
+    {
+        var contentWidth = ContentWidthTwips(page);
+        var indent = (int)MathF.Round(x / Math.Max(1f, page.PixelWidth) * contentWidth);
+        return Math.Clamp(indent, 0, Math.Max(0, contentWidth - 720));
+    }
+
+    private static int EstimateSpacingBefore(BookPageInfo page, float previousBottom, float currentY)
+    {
+        if (previousBottom <= 0 || currentY <= previousBottom)
+        {
+            return 0;
+        }
+
+        var gapPixels = currentY - previousBottom;
+        var pageHeightTwips = Math.Max(720f, page.HeightPoints * 20f);
+        var gapTwips = (int)MathF.Round(gapPixels / Math.Max(1f, page.PixelHeight) * pageHeightTwips * 0.82f);
+        return Math.Clamp(gapTwips, 0, 900);
+    }
+
+    private static int EstimateFontHalfPoints(BookPageInfo page, OcrLineBox line, bool isHeading)
+    {
+        var lineHeightPoints = line.Height / Math.Max(1f, page.PixelHeight) * Math.Max(1f, page.HeightPoints);
+        var halfPoints = (int)MathF.Round(lineHeightPoints * 2f * 0.92f);
+        return Math.Clamp(halfPoints, isHeading ? 18 : 14, isHeading ? 42 : 26);
+    }
+
+    private static bool IsCentered(BookPageInfo page, OcrLineBox line)
+    {
+        var lineCenter = line.X + (line.Width / 2f);
+        var pageCenter = page.PixelWidth / 2f;
+        return Math.Abs(lineCenter - pageCenter) < page.PixelWidth * 0.16f;
+    }
+
+    private static (double widthInches, double heightInches) EstimateImageSizeInches(BookPageInfo page, RescuedImageInfo image)
+    {
+        var pageWidthInches = Math.Max(1d, page.WidthPoints / 72d);
+        var pageHeightInches = Math.Max(1d, page.HeightPoints / 72d);
+        var contentWidthInches = Math.Max(1d, (ContentWidthTwips(page) / 1440d));
+        var contentHeightInches = Math.Max(1d, (ContentHeightTwips(page) / 1440d));
+
+        var widthInches = image.Width / Math.Max(1d, page.PixelWidth) * pageWidthInches;
+        var heightInches = image.Height / Math.Max(1d, page.PixelHeight) * pageHeightInches;
+
+        widthInches = Math.Clamp(widthInches, 0.25d, contentWidthInches);
+        heightInches = Math.Clamp(heightInches, 0.25d, contentHeightInches * 0.72d);
+
+        var imageRatio = image.Width / Math.Max(1d, image.Height);
+        var renderedRatio = widthInches / Math.Max(0.01d, heightInches);
+        if (Math.Abs(renderedRatio - imageRatio) > 0.08d)
+        {
+            if (renderedRatio > imageRatio)
+            {
+                widthInches = heightInches * imageRatio;
+            }
+            else
+            {
+                heightInches = widthInches / imageRatio;
+            }
+        }
+
+        return (Math.Max(0.25d, widthInches), Math.Max(0.25d, heightInches));
+    }
+
+    private static int ContentWidthTwips(BookPageInfo page)
+    {
+        var pageWidthTwips = Math.Clamp((int)MathF.Round(page.WidthPoints * 20f), 720, 31680);
+        return Math.Max(720, pageWidthTwips - (DefaultMarginTwips * 2));
+    }
+
+    private static int ContentHeightTwips(BookPageInfo page)
+    {
+        var pageHeightTwips = Math.Clamp((int)MathF.Round(page.HeightPoints * 20f), 720, 31680);
+        return Math.Max(720, pageHeightTwips - (DefaultMarginTwips * 2));
+    }
+
+    private sealed record PageElement(
+        float X,
+        float Y,
+        float Bottom,
+        OcrLineBox? Line,
+        RescuedImageInfo? Image)
+    {
+        public static PageElement FromText(OcrLineBox line)
+        {
+            return new PageElement(line.X, line.Y, line.Y + line.Height, line, null);
+        }
+
+        public static PageElement FromImage(RescuedImageInfo image)
+        {
+            return new PageElement(image.X, image.Y, image.Y + image.Height, null, image);
+        }
     }
 }

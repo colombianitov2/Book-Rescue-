@@ -5,7 +5,7 @@ namespace BookRescue.App.Services;
 
 public sealed class UpdateService : IDisposable
 {
-    private const string LatestReleaseUrl = "https://api.github.com/repos/colombianitov2/BookRescue/releases/latest";
+    private const string LatestReleaseUrl = "https://api.github.com/repos/colombianitov2/Book-Rescue/releases/latest";
     private readonly HttpClient _httpClient = new();
 
     public UpdateService()

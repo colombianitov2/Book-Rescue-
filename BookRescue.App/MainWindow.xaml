@@ -394,7 +394,7 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Style="{StaticResource SectionTitle}" Text="Biblioteca" />
                             <Button Grid.Column="1"
-                                    Content="Limpiar"
+                                    Content="Ocultar lista"
                                     Command="{Binding ClearSessionLibraryCommand}" />
                         </Grid>
 

@@ -92,8 +92,10 @@ public partial class App : Application
         outputFolder = ReadArg(args, "--out") ?? outputFolder;
         ocrLanguages = ReadArg(args, "--ocr") ?? ocrLanguages;
         outputLanguage = ReadArg(args, "--lang") ?? outputLanguage;
-        useLocalAiAssistance = args.Contains("--ai", StringComparer.OrdinalIgnoreCase) && !args.Contains("--no-ai", StringComparer.OrdinalIgnoreCase);
-        outputProfiles = ParseOutputProfiles(ReadArg(args, "--formats"));
+        var reconstructionMode = ParseReconstructionMode(ReadArg(args, "--mode") ?? ReadArg(args, "--reconstruction-mode"));
+        useLocalAiAssistance = (reconstructionMode == OutputReconstructionMode.PerfectHeavy || args.Contains("--ai", StringComparer.OrdinalIgnoreCase))
+            && !args.Contains("--no-ai", StringComparer.OrdinalIgnoreCase);
+        outputProfiles = ParseOutputProfiles(ReadArg(args, "--formats"), reconstructionMode);
         enableTranslation = args.Contains("--translate", StringComparer.OrdinalIgnoreCase)
             && !args.Contains("--no-translate", StringComparer.OrdinalIgnoreCase);
 
@@ -144,11 +146,17 @@ public partial class App : Application
             translationApiKey: null);
     }
 
-    private static OutputProfileOptions ParseOutputProfiles(string? value)
+    private static OutputProfileOptions ParseOutputProfiles(string? value, OutputReconstructionMode reconstructionMode)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            return new OutputProfileOptions { Pdf = true, Word = true };
+            return new OutputProfileOptions
+            {
+                ReconstructionMode = reconstructionMode,
+                MaximumQuality = reconstructionMode == OutputReconstructionMode.PerfectHeavy,
+                Pdf = true,
+                Word = true
+            };
         }
 
         var formats = value
@@ -158,10 +166,29 @@ public partial class App : Application
 
         return new OutputProfileOptions
         {
+            ReconstructionMode = reconstructionMode,
+            MaximumQuality = reconstructionMode == OutputReconstructionMode.PerfectHeavy,
             Pdf = formats.Contains("pdf"),
             Word = formats.Contains("word") || formats.Contains("docx"),
             Epub = formats.Contains("epub"),
             Csv = formats.Contains("csv") || formats.Contains("csj")
+        };
+    }
+
+    private static OutputReconstructionMode ParseReconstructionMode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return OutputReconstructionMode.TextAndPhotos;
+        }
+
+        var normalized = value.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "heavy" or "perfect" or "perfect-heavy" or "perfectheavy" or "reconstruccion-perfecta-pesada" => OutputReconstructionMode.PerfectHeavy,
+            "text" or "text-only" or "texto" or "solo-texto" => OutputReconstructionMode.TextOnly,
+            "photos" or "text-photos" or "text-and-photos" or "texto-y-fotos" => OutputReconstructionMode.TextAndPhotos,
+            _ => OutputReconstructionMode.TextAndPhotos
         };
     }
 

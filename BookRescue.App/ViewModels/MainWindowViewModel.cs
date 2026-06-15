@@ -387,7 +387,7 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
     private void ClearSessionLibrary()
     {
         LibraryItems.Clear();
-        StatusMessage = "Biblioteca limpia.";
+        StatusMessage = "Vista de biblioteca limpia. El historial persistente se conserva.";
     }
 
     [RelayCommand]

@@ -29,6 +29,29 @@ La salida publicada queda en el instalador portable:
 D:\Extractor de texto\BookRescue\installer
 ```
 
+## Pruebas por consola
+
+La app tambien permite ejecutar conversiones controladas sin abrir la interfaz:
+
+```powershell
+D:\Extractor de texto\BookRescue\BookRescue.App\bin\Release\net10.0-windows\BookRescue.App.exe `
+  --convert "D:\ruta\entrada.pdf" `
+  --out "D:\ruta\salida" `
+  --ocr eng `
+  --lang es `
+  --mode heavy `
+  --formats pdf,word,csv `
+  --no-translate
+```
+
+Modos aceptados por `--mode`:
+
+- `text`: Extraer solo texto.
+- `photos`: Texto y fotos.
+- `heavy`: Reconstrucción perfecta pesada.
+
+En modo `heavy`, `MaximumQuality` se activa internamente y la IA local se usa automaticamente salvo que se indique `--no-ai`.
+
 ## Que hace
 
 - Sube uno o varios PDF/imagenes.
