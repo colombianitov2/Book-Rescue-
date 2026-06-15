@@ -11,8 +11,8 @@ public sealed record PerfectHeavyReconstructionResult(
 public sealed class PerfectHeavyReconstructionService
 {
     private readonly HeavyLayoutAnalyzer analyzer = new();
-    private readonly PerfectPdfReconstructor pdfReconstructor = new();
-    private readonly PerfectDocxReconstructor docxReconstructor = new();
+    private readonly PdfEditorialWriter pdfEditorialWriter = new();
+    private readonly DocxEditorialWriter docxEditorialWriter = new();
     private readonly ReconstructionReportWriter reportWriter = new();
 
     public PerfectHeavyReconstructionResult WriteOutputs(
@@ -23,6 +23,7 @@ public sealed class PerfectHeavyReconstructionService
         bool writeDocx,
         IReadOnlyList<BookPageInfo> pages,
         IReadOnlyList<OcrPageResult> ocrPages,
+        IReadOnlyList<string> outputPageTexts,
         IReadOnlyList<RescuedImageInfo> rescuedImages,
         CancellationToken cancellationToken)
     {
@@ -48,16 +49,29 @@ public sealed class PerfectHeavyReconstructionService
                 outputFolder));
         }
 
+        var effectivePageTexts = pages
+            .Select((page, index) => index < outputPageTexts.Count && !string.IsNullOrWhiteSpace(outputPageTexts[index])
+                ? outputPageTexts[index]
+                : TextCleanupService.BuildOrderedPageText(
+                    page,
+                    index < ocrPages.Count
+                        ? ocrPages[index]
+                        : new OcrPageResult { FullText = string.Empty, Words = [], Lines = [] }))
+            .ToList();
+        var editorialImages = allRegionalFallbacks
+            .Where(image => !image.Kind.Equals("low-confidence-text", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
         if (writePdf)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            pdfReconstructor.WritePdf(pdfPath, layouts);
+            pdfEditorialWriter.WritePdf(pdfPath, pages, ocrPages, effectivePageTexts, editorialImages, includeImages: true);
         }
 
         if (writeDocx)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            docxReconstructor.WriteDocx(docxPath, layouts);
+            docxEditorialWriter.WriteDocx(docxPath, pages, ocrPages, effectivePageTexts, editorialImages, includeImages: true);
         }
 
         cancellationToken.ThrowIfCancellationRequested();

@@ -381,6 +381,7 @@ public sealed class BookConversionPipeline
                     outputProfiles.Word,
                     finalizedPages,
                     ocrPages,
+                    translatedPageTexts,
                     rescuedImages,
                     cancellationToken);
                 var done = Interlocked.Add(ref completedOutputs, selectedHeavyOutputs);

@@ -79,17 +79,16 @@ public sealed class VisualSimilarityService
 
         DrawRegionalImages(canvas, layout);
         DrawDecorations(canvas, layout);
-        if (string.IsNullOrWhiteSpace(layout.Background.CleanBackgroundImagePath))
-        {
-            DrawVisibleText(canvas, layout);
-        }
+        DrawVisibleText(canvas, layout);
 
         Cv2.ImWrite(outputPath, canvas);
     }
 
     private static Mat CreateBackgroundCanvas(HeavyPageLayout layout)
     {
-        if (!string.IsNullOrWhiteSpace(layout.Background.CleanBackgroundImagePath) && File.Exists(layout.Background.CleanBackgroundImagePath))
+        if (ShouldUseVisualBackground(layout) &&
+            !string.IsNullOrWhiteSpace(layout.Background.CleanBackgroundImagePath) &&
+            File.Exists(layout.Background.CleanBackgroundImagePath))
         {
             var background = Cv2.ImRead(layout.Background.CleanBackgroundImagePath, ImreadModes.Color);
             if (!background.Empty())
@@ -113,6 +112,15 @@ public sealed class VisualSimilarityService
             Math.Max(1, layout.Page.PixelWidth),
             MatType.CV_8UC3,
             new Scalar(layout.Background.Blue, layout.Background.Green, layout.Background.Red));
+    }
+
+    private static bool ShouldUseVisualBackground(HeavyPageLayout layout)
+    {
+        var background = layout.Background;
+        var max = Math.Max(background.Red, Math.Max(background.Green, background.Blue));
+        var min = Math.Min(background.Red, Math.Min(background.Green, background.Blue));
+        var average = (background.Red + background.Green + background.Blue) / 3d;
+        return !(average >= 216 && max - min <= 24);
     }
 
     private static void WriteSideBySide(string originalPath, string reconstructedPath, string outputPath)

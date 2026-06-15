@@ -34,7 +34,7 @@ public sealed class PerfectPdfReconstructor
             var pdfPage = pdfDocument.AddNewPage(new PageSize(pageWidth, pageHeight));
             var canvas = new PdfCanvas(pdfPage);
 
-            AddCleanBackground(canvas, layout.Background, pageWidth, pageHeight);
+            AddCleanBackground(canvas, layout, pageWidth, pageHeight);
             AddRegionalFallbackImages(canvas, layout, pageHeight);
             AddDecorationRegions(canvas, layout, pageHeight);
             AddVisibleOcrText(
@@ -43,15 +43,17 @@ public sealed class PerfectPdfReconstructor
                 headingFont,
                 layout.Page,
                 layout.Ocr,
-                pageHeight,
-                hasVisualBackground: !string.IsNullOrWhiteSpace(layout.Background.CleanBackgroundImagePath) && File.Exists(layout.Background.CleanBackgroundImagePath));
+                pageHeight);
             AddEmergencyFullPageFallback(canvas, layout, pageWidth, pageHeight);
         }
     }
 
-    private static void AddCleanBackground(PdfCanvas canvas, CleanPageBackground background, float pageWidth, float pageHeight)
+    private static void AddCleanBackground(PdfCanvas canvas, HeavyPageLayout layout, float pageWidth, float pageHeight)
     {
-        if (!string.IsNullOrWhiteSpace(background.CleanBackgroundImagePath) && File.Exists(background.CleanBackgroundImagePath))
+        var background = layout.Background;
+        if (ShouldUseVisualBackground(layout) &&
+            !string.IsNullOrWhiteSpace(background.CleanBackgroundImagePath) &&
+            File.Exists(background.CleanBackgroundImagePath))
         {
             canvas.AddImageFittedIntoRectangle(
                 ImageDataFactory.Create(background.CleanBackgroundImagePath),
@@ -65,6 +67,16 @@ public sealed class PerfectPdfReconstructor
         canvas.Rectangle(0, 0, pageWidth, pageHeight);
         canvas.Fill();
         canvas.RestoreState();
+    }
+
+    private static bool ShouldUseVisualBackground(HeavyPageLayout layout)
+    {
+        var background = layout.Background;
+        var max = Math.Max(background.Red, Math.Max(background.Green, background.Blue));
+        var min = Math.Min(background.Red, Math.Min(background.Green, background.Blue));
+        var average = (background.Red + background.Green + background.Blue) / 3d;
+        var looksLikePlainPaper = average >= 216 && max - min <= 24;
+        return !looksLikePlainPaper;
     }
 
     private static void AddRegionalFallbackImages(PdfCanvas canvas, HeavyPageLayout layout, float pageHeight)
@@ -110,8 +122,7 @@ public sealed class PerfectPdfReconstructor
         PdfFont headingFont,
         BookPageInfo page,
         OcrPageResult ocrPage,
-        float pageHeight,
-        bool hasVisualBackground)
+        float pageHeight)
     {
         foreach (var line in TextCleanupService.BuildOrderedLineBoxes(page, ocrPage)
                      .Where(line => line.Confidence >= 35 && !string.IsNullOrWhiteSpace(line.Text)))
@@ -129,11 +140,6 @@ public sealed class PerfectPdfReconstructor
 
             canvas.SaveState();
             canvas.BeginText();
-            if (hasVisualBackground)
-            {
-                canvas.SetTextRenderingMode(3);
-            }
-
             canvas.SetFontAndSize(isHeading ? headingFont : bodyFont, fontSize);
             canvas.SetFillColor(ColorConstants.BLACK);
             canvas.MoveText(x, y);

@@ -39,8 +39,12 @@ public sealed class DocxEditorialWriter
         AddStyles(mainPart);
 
         var body = mainPart.Document.Body!;
+        var firstOcrPage = ocrPages.Count > 0
+            ? ocrPages[0]
+            : new OcrPageResult { FullText = string.Empty, Words = [], Lines = [] };
+        var preserveCover = includeImages && ShouldPreserveCoverAsImage(pages[0], firstOcrPage);
         var startIndex = 0;
-        if (includeImages)
+        if (preserveCover)
         {
             AppendCover(mainPart, body, pages[0]);
             startIndex = 1;
@@ -48,7 +52,7 @@ public sealed class DocxEditorialWriter
 
         for (var index = startIndex; index < pages.Count; index++)
         {
-            if (index > startIndex || includeImages)
+            if (index > startIndex || preserveCover)
             {
                 body.Append(CreatePageBreak());
             }
@@ -65,6 +69,46 @@ public sealed class DocxEditorialWriter
 
         body.Append(CreateSectionProperties());
         mainPart.Document.Save();
+    }
+
+    private static bool ShouldPreserveCoverAsImage(BookPageInfo page, OcrPageResult ocrPage)
+    {
+        var imagePath = !string.IsNullOrWhiteSpace(page.RestoredImagePath) && File.Exists(page.RestoredImagePath)
+            ? page.RestoredImagePath
+            : page.OriginalImagePath;
+        if (!File.Exists(imagePath))
+        {
+            return false;
+        }
+
+        var readableLines = TextCleanupService.BuildOrderedLineBoxes(page, ocrPage);
+        var readableCharacters = readableLines.Sum(line => line.Text.Count(char.IsLetterOrDigit));
+        if (readableCharacters > 260 || readableLines.Count > 9)
+        {
+            return false;
+        }
+
+        return HasNonPlainVisualBackground(imagePath);
+    }
+
+    private static bool HasNonPlainVisualBackground(string imagePath)
+    {
+        using var source = Cv2.ImRead(imagePath, ImreadModes.Color);
+        if (source.Empty())
+        {
+            return false;
+        }
+
+        using var hsv = new Mat();
+        Cv2.CvtColor(source, hsv, ColorConversionCodes.BGR2HSV);
+        Cv2.Split(hsv, out var channels);
+        using var saturation = channels[1];
+        using var value = channels[2];
+        channels[0].Dispose();
+
+        var meanSaturation = Cv2.Mean(saturation).Val0;
+        var meanValue = Cv2.Mean(value).Val0;
+        return meanSaturation > 22 || meanValue < 205;
     }
 
     private static void AppendCover(MainDocumentPart mainPart, Body body, BookPageInfo cover)

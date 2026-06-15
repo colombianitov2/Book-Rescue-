@@ -154,19 +154,22 @@ public sealed class CleanBackgroundEstimator
     {
         using var protectedMask = BuildProtectedContentMask(source, pageInput, regions);
         using var damageMask = BuildDamageMask(source, protectedMask, regions);
-        using var cleaned = new Mat();
-        if (Cv2.CountNonZero(damageMask) > 0)
+        using var textInkMask = BuildTextInkMask(source, pageInput);
+        using var backgroundMask = BuildEditorialBackgroundMask(source, pageInput, damageMask, textInkMask);
+        using var editorialBackground = new Mat();
+        if (Cv2.CountNonZero(backgroundMask) > 0)
         {
-            Cv2.Inpaint(source, damageMask, cleaned, 2.2, InpaintTypes.Telea);
+            Cv2.Inpaint(source, backgroundMask, editorialBackground, 3.0, InpaintTypes.Telea);
+            BlendTextInkWithLocalPaper(editorialBackground, textInkMask, pageInput);
         }
         else
         {
-            source.CopyTo(cleaned);
+            source.CopyTo(editorialBackground);
         }
 
         Cv2.ImWrite(paths.DamageMaskPath, damageMask);
         Cv2.ImWrite(paths.ProtectedContentMaskPath, protectedMask);
-        Cv2.ImWrite(paths.CleanBackgroundPath, cleaned, [new ImageEncodingParam(ImwriteFlags.PngCompression, 2)]);
+        Cv2.ImWrite(paths.CleanBackgroundPath, editorialBackground, [new ImageEncodingParam(ImwriteFlags.PngCompression, 2)]);
 
         using var overlay = source.Clone();
         foreach (var region in regions)
@@ -213,6 +216,171 @@ public sealed class CleanBackgroundEstimator
         }
 
         return protectedMask;
+    }
+
+    private static Mat BuildEditorialBackgroundMask(Mat source, HeavyPageLayoutInput pageInput, Mat damageMask, Mat textInkMask)
+    {
+        var mask = new Mat(source.Rows, source.Cols, MatType.CV_8UC1, Scalar.Black);
+        if (!damageMask.Empty())
+        {
+            damageMask.CopyTo(mask);
+        }
+
+        if (!textInkMask.Empty())
+        {
+            Cv2.BitwiseOr(mask, textInkMask, mask);
+        }
+
+        foreach (var image in pageInput.PageImages.Where(image => File.Exists(image.ImagePath)))
+        {
+            Cv2.Rectangle(mask, ClampRect(image.X, image.Y, image.Width, image.Height, source.Width, source.Height, 4), Scalar.White, -1);
+        }
+
+        using var closeKernel = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(3, 3));
+        Cv2.MorphologyEx(mask, mask, MorphTypes.Close, closeKernel);
+        return mask;
+    }
+
+    private static Mat BuildTextInkMask(Mat source, HeavyPageLayoutInput pageInput)
+    {
+        var mask = new Mat(source.Rows, source.Cols, MatType.CV_8UC1, Scalar.Black);
+        using var gray = new Mat();
+        Cv2.CvtColor(source, gray, ColorConversionCodes.BGR2GRAY);
+
+        if (pageInput.Ocr.Words.Count > 0)
+        {
+            foreach (var word in pageInput.Ocr.Words.Where(word => word.Confidence >= 24 && !string.IsNullOrWhiteSpace(word.Text)))
+            {
+                var padding = Math.Clamp((int)MathF.Round(word.Height * 0.16f), 1, 5);
+                AddInkMaskForRegion(gray, mask, ClampRect(word.X, word.Y, word.Width, word.Height, source.Width, source.Height, padding));
+            }
+        }
+        else
+        {
+            foreach (var line in pageInput.Ocr.Lines.Where(line => line.Confidence >= 28 && !string.IsNullOrWhiteSpace(line.Text)))
+            {
+                var padding = Math.Clamp((int)MathF.Round(line.Height * 0.18f), 2, 8);
+                AddInkMaskForRegion(gray, mask, ClampRect(line.X, line.Y, line.Width, line.Height, source.Width, source.Height, padding));
+            }
+        }
+
+        return mask;
+    }
+
+    private static void AddInkMaskForRegion(Mat gray, Mat targetMask, Rect rect)
+    {
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            return;
+        }
+
+        using var crop = new Mat(gray, rect);
+        using var ink = new Mat();
+        Cv2.Threshold(crop, ink, 0, 255, ThresholdTypes.BinaryInv | ThresholdTypes.Otsu);
+
+        using var kernel = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(2, 2));
+        Cv2.Dilate(ink, ink, kernel, iterations: 1);
+
+        using var targetRoi = new Mat(targetMask, rect);
+        Cv2.BitwiseOr(targetRoi, ink, targetRoi);
+    }
+
+    private static void BlendTextInkWithLocalPaper(Mat canvas, Mat textInkMask, HeavyPageLayoutInput pageInput)
+    {
+        if (textInkMask.Empty() || Cv2.CountNonZero(textInkMask) == 0)
+        {
+            return;
+        }
+
+        if (pageInput.Ocr.Words.Count > 0)
+        {
+            foreach (var word in pageInput.Ocr.Words.Where(word => word.Confidence >= 24 && !string.IsNullOrWhiteSpace(word.Text)))
+            {
+                var padding = Math.Clamp((int)MathF.Round(word.Height * 0.16f), 1, 5);
+                BlendInkRegion(canvas, textInkMask, ClampRect(word.X, word.Y, word.Width, word.Height, canvas.Width, canvas.Height, padding));
+            }
+        }
+        else
+        {
+            foreach (var line in pageInput.Ocr.Lines.Where(line => line.Confidence >= 28 && !string.IsNullOrWhiteSpace(line.Text)))
+            {
+                var padding = Math.Clamp((int)MathF.Round(line.Height * 0.18f), 2, 8);
+                BlendInkRegion(canvas, textInkMask, ClampRect(line.X, line.Y, line.Width, line.Height, canvas.Width, canvas.Height, padding));
+            }
+        }
+    }
+
+    private static void BlendInkRegion(Mat canvas, Mat textInkMask, Rect rect)
+    {
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            return;
+        }
+
+        using var maskRoi = new Mat(textInkMask, rect);
+        if (Cv2.CountNonZero(maskRoi) == 0)
+        {
+            return;
+        }
+
+        var sampleRect = ExpandRect(rect, canvas.Width, canvas.Height, Math.Clamp(Math.Min(rect.Width, rect.Height), 8, 28));
+        var paper = EstimateLocalPaperColor(canvas, textInkMask, sampleRect);
+        using var targetRoi = new Mat(canvas, rect);
+        using var patch = new Mat(rect.Height, rect.Width, canvas.Type(), new Scalar(paper.Item0, paper.Item1, paper.Item2));
+        patch.CopyTo(targetRoi, maskRoi);
+    }
+
+    private static Vec3b EstimateLocalPaperColor(Mat canvas, Mat textInkMask, Rect sampleRect)
+    {
+        var blue = new List<byte>();
+        var green = new List<byte>();
+        var red = new List<byte>();
+        var stepX = Math.Max(1, sampleRect.Width / 28);
+        var stepY = Math.Max(1, sampleRect.Height / 28);
+
+        for (var y = sampleRect.Y; y < sampleRect.Bottom; y += stepY)
+        {
+            for (var x = sampleRect.X; x < sampleRect.Right; x += stepX)
+            {
+                if (textInkMask.At<byte>(y, x) != 0)
+                {
+                    continue;
+                }
+
+                var pixel = canvas.At<Vec3b>(y, x);
+                var brightness = (pixel.Item0 + pixel.Item1 + pixel.Item2) / 3d;
+                if (brightness < 115)
+                {
+                    continue;
+                }
+
+                blue.Add(pixel.Item0);
+                green.Add(pixel.Item1);
+                red.Add(pixel.Item2);
+            }
+        }
+
+        if (blue.Count < 4)
+        {
+            return new Vec3b(248, 248, 248);
+        }
+
+        static byte Median(List<byte> values)
+        {
+            values.Sort();
+            return values[values.Count / 2];
+        }
+
+        return new Vec3b(Median(blue), Median(green), Median(red));
+    }
+
+    private static Rect ExpandRect(Rect rect, int maxWidth, int maxHeight, int padding)
+    {
+        var left = Math.Max(0, rect.X - padding);
+        var top = Math.Max(0, rect.Y - padding);
+        var right = Math.Min(maxWidth, rect.Right + padding);
+        var bottom = Math.Min(maxHeight, rect.Bottom + padding);
+        return new Rect(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top));
     }
 
     private static Mat BuildDamageMask(Mat source, Mat protectedMask, IReadOnlyList<DetectedVisualRegion> regions)
