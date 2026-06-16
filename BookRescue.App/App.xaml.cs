@@ -188,6 +188,7 @@ public partial class App : Application
             "heavy" or "perfect" or "perfect-heavy" or "perfectheavy" or "reconstruccion-perfecta-pesada" => OutputReconstructionMode.PerfectHeavy,
             "text" or "text-only" or "texto" or "solo-texto" => OutputReconstructionMode.TextOnly,
             "photos" or "text-photos" or "text-and-photos" or "texto-y-fotos" => OutputReconstructionMode.TextAndPhotos,
+            "visual" or "visual-only" or "figures" or "graphics" or "tables" or "solo-tablas" or "solo-graficos" or "solo-tablas-y-graficos" => OutputReconstructionMode.VisualElementsOnly,
             _ => OutputReconstructionMode.TextAndPhotos
         };
     }

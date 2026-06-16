@@ -68,6 +68,7 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
     [
         "Extraer solo texto",
         "Texto y fotos",
+        "Solo tablas y gráficos",
         "Reconstrucción perfecta pesada"
     ];
 
@@ -131,7 +132,8 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
 
     public string ReconstructionModeHelp => SelectedReconstructionMode switch
     {
-        "Reconstrucción perfecta pesada" => "Modo lento y detallado. Intenta conservar cada detalle visual del libro: fondos, imágenes, márgenes, decoración, tablas, texto vertical y composición original.",
+        "Reconstrucción perfecta pesada" => "Modo lento y detallado. Analiza regiones, tablas, fórmulas, figuras y orden de lectura para construir un documento blanco, limpio y coherente.",
+        "Solo tablas y gráficos" => "Extrae solamente tablas, gráficos, diagramas, fórmulas como imagen y otros elementos no textuales. Omite el texto plano del documento final.",
         "Texto y fotos" => "Extrae texto y fotos, organiza el documento con fuentes predeterminadas, tablas, fórmulas sencillas y figuras rescatadas.",
         _ => "Extrae solamente texto limpio y organizado, sin insertar fotos ni imágenes en el documento final."
     };
@@ -487,6 +489,7 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
             ReconstructionMode = SelectedReconstructionMode switch
             {
                 "Reconstrucción perfecta pesada" => OutputReconstructionMode.PerfectHeavy,
+                "Solo tablas y gráficos" => OutputReconstructionMode.VisualElementsOnly,
                 "Texto y fotos" => OutputReconstructionMode.TextAndPhotos,
                 _ => OutputReconstructionMode.TextOnly
             },

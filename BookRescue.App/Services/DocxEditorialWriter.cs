@@ -240,10 +240,90 @@ public sealed class DocxEditorialWriter
                 new ParagraphStyleId { Val = "BookRescueEditorialFormula" },
                 new Justification { Val = JustificationValues.Center },
                 new SpacingBetweenLines { Before = "130", After = "130" }),
-            new M.OfficeMath(
-                new M.Run(
-                    new M.RunProperties(new M.Style { Val = M.StyleValues.Italic }),
-                    new M.Text(text) { Space = SpaceProcessingModeValues.Preserve }))));
+            CreateFormulaMath(text)));
+    }
+
+    private static M.OfficeMath CreateFormulaMath(string text)
+    {
+        if (TrySplitSimpleFraction(text, out var prefix, out var numerator, out var denominator, out var suffix))
+        {
+            return new M.OfficeMath(
+                CreateMathRun(prefix),
+                new M.Fraction(
+                    new M.FractionProperties(new M.FractionType { Val = M.FractionTypeValues.Bar }),
+                    new M.Numerator(CreateMathRun(numerator)),
+                    new M.Denominator(CreateMathRun(denominator))),
+                CreateMathRun(suffix));
+        }
+
+        return new M.OfficeMath(CreateMathRun(text));
+    }
+
+    private static M.Run CreateMathRun(string text)
+    {
+        return new M.Run(
+            new M.RunProperties(new M.Style { Val = M.StyleValues.Italic }),
+            new M.Text(text) { Space = SpaceProcessingModeValues.Preserve });
+    }
+
+    private static bool TrySplitSimpleFraction(
+        string text,
+        out string prefix,
+        out string numerator,
+        out string denominator,
+        out string suffix)
+    {
+        prefix = string.Empty;
+        numerator = string.Empty;
+        denominator = string.Empty;
+        suffix = string.Empty;
+
+        var slash = text.IndexOf('/');
+        if (slash <= 0 || slash != text.LastIndexOf('/'))
+        {
+            return false;
+        }
+
+        var leftEnd = slash - 1;
+        while (leftEnd >= 0 && char.IsWhiteSpace(text[leftEnd]))
+        {
+            leftEnd--;
+        }
+
+        var start = leftEnd;
+        while (start >= 0 && IsFormulaTokenCharacter(text[start]))
+        {
+            start--;
+        }
+
+        var rightStart = slash + 1;
+        while (rightStart < text.Length && char.IsWhiteSpace(text[rightStart]))
+        {
+            rightStart++;
+        }
+
+        var end = rightStart;
+        while (end < text.Length && IsFormulaTokenCharacter(text[end]))
+        {
+            end++;
+        }
+
+        numerator = text[(start + 1)..(leftEnd + 1)].Trim();
+        denominator = text[rightStart..end].Trim();
+        if (numerator.Length == 0 || denominator.Length == 0 || numerator.Length > 45 || denominator.Length > 45)
+        {
+            return false;
+        }
+
+        prefix = text[..(start + 1)];
+        suffix = text[end..];
+        return true;
+    }
+
+    private static bool IsFormulaTokenCharacter(char value)
+    {
+        return char.IsLetterOrDigit(value) ||
+               value is '.' or ',' or '_' or '^' or '+' or '-' or '*' or '(' or ')' or '[' or ']' or '{' or '}' or 'Δ' or 'γ' or 'ρ';
     }
 
     private static void AppendTable(Body body, IReadOnlyList<IReadOnlyList<string>> rows)

@@ -85,6 +85,7 @@ public sealed class BookConversionPipeline
 
         var reconstructionMode = outputProfiles.ReconstructionMode;
         var isTextOnly = reconstructionMode == OutputReconstructionMode.TextOnly;
+        var isVisualElementsOnly = reconstructionMode == OutputReconstructionMode.VisualElementsOnly;
         var isPerfectHeavy = reconstructionMode == OutputReconstructionMode.PerfectHeavy;
         var allowDocumentAi = useLocalAiAssistance && isPerfectHeavy;
         var allowLocalTextAi = useLocalAiAssistance && isPerfectHeavy;
@@ -95,7 +96,7 @@ public sealed class BookConversionPipeline
         const double extractWeight = 13d;
         const double detectWeight = 2d;
         const double outputWeight = 8d;
-        var aiWeight = aiWillRun ? 22d : 0d;
+        var aiWeight = aiWillRun ? 30d : 0d;
         var translationWeight = enableTranslation ? 10d : 0d;
         var pageProcessingWeight = Math.Max(35d, 100d - prepareWeight - extractWeight - aiWeight - translationWeight - detectWeight - outputWeight);
         var progressScale = 100d / (prepareWeight + extractWeight + pageProcessingWeight + aiWeight + detectWeight + translationWeight + outputWeight);
@@ -135,7 +136,7 @@ public sealed class BookConversionPipeline
             throw new InvalidOperationException("No se encontraron páginas para procesar.");
         }
 
-        var pageParallelism = SelectPageProcessingParallelism(pages.Count);
+        var pageParallelism = SelectPageProcessingParallelism(pages.Count, isPerfectHeavy);
         progress?.Report(new ConversionProgressUpdate(extractEnd, $"{GetModeProgressName(reconstructionMode)}. Reconstruyendo con {pageParallelism} proceso(s)..."));
         var ocrPageArray = new OcrPageResult[pages.Count];
         var finalizedPageArray = new BookPageInfo[pages.Count];
@@ -225,7 +226,9 @@ public sealed class BookConversionPipeline
             .Select((ocrPage, index) => TextCleanupService.BuildOrderedPageText(finalizedPages[index], ocrPage))
             .ToList();
 
-        var organizedPageTexts = originalPageTexts.ToList();
+        var organizedPageTexts = isVisualElementsOnly
+            ? Enumerable.Range(0, originalPageTexts.Count).Select(_ => string.Empty).ToList()
+            : originalPageTexts.ToList();
         var documentAiApplied = false;
         if (allowDocumentAi && _documentAi.IsAvailable)
         {
@@ -272,18 +275,26 @@ public sealed class BookConversionPipeline
             progress?.Report(new ConversionProgressUpdate(aiEnd, "Contenido organizado con inteligencia documental..."));
         }
 
-        var allText = string.Join(Environment.NewLine + Environment.NewLine, organizedPageTexts);
-        progress?.Report(new ConversionProgressUpdate(detectStart, "Detectando idioma de origen..."));
+        var normalizedDetected = "visual";
+        if (!isVisualElementsOnly)
+        {
+            var allText = string.Join(Environment.NewLine + Environment.NewLine, organizedPageTexts);
+            progress?.Report(new ConversionProgressUpdate(detectStart, "Detectando idioma de origen..."));
 
-        var detectedLanguage = await _languageDetection.DetectAsync(allText, translationEndpoint, translationApiKey, cancellationToken);
-        var normalizedDetected = NormalizeLanguage(detectedLanguage, "auto");
-        progress?.Report(new ConversionProgressUpdate(detectEnd, "Idioma detectado..."));
+            var detectedLanguage = await _languageDetection.DetectAsync(allText, translationEndpoint, translationApiKey, cancellationToken);
+            normalizedDetected = NormalizeLanguage(detectedLanguage, "auto");
+            progress?.Report(new ConversionProgressUpdate(detectEnd, "Idioma detectado..."));
+        }
+        else
+        {
+            progress?.Report(new ConversionProgressUpdate(detectEnd, "Elementos visuales clasificados..."));
+        }
 
         var translatedPageTexts = new List<string>(ocrPages.Count);
         var translationApplied = false;
         var translatorAvailable = false;
 
-        if (enableTranslation && normalizedDetected != outputLanguage)
+        if (enableTranslation && !isVisualElementsOnly && normalizedDetected != outputLanguage)
         {
             progress?.Report(new ConversionProgressUpdate(translationStart, "Preparando traducción..."));
             translatorAvailable = await _translation.CanReachServerAsync(translationEndpoint, cancellationToken);
@@ -331,6 +342,7 @@ public sealed class BookConversionPipeline
         var modeSuffix = GetModeOutputSuffix(reconstructionMode);
         var modeName = GetModeProgressName(reconstructionMode);
         var textOutputPath = Path.Combine(runFolder, $"{baseOutputName}_{modeSuffix}.txt");
+        var outputOcrPages = isVisualElementsOnly ? CreateBlankOcrPages(ocrPages.Count) : ocrPages;
         var reconstructedPdfPath = string.Empty;
         var reconstructedDocxPath = string.Empty;
         var reconstructedEpubPath = string.Empty;
@@ -396,11 +408,11 @@ public sealed class BookConversionPipeline
                 ReportOutputProgress(outputStart, "Creando PDF...");
                 if (isTextOnly)
                 {
-                    _pdfEditorialWriter.WritePdf(reconstructedPdfPath, finalizedPages, ocrPages, translatedPageTexts, rescuedImages, includeImages: false);
+                    _pdfEditorialWriter.WritePdf(reconstructedPdfPath, finalizedPages, outputOcrPages, translatedPageTexts, rescuedImages, includeImages: false);
                 }
                 else
                 {
-                    _pdfWriter.WriteClonePdf(reconstructedPdfPath, finalizedPages, ocrPages, translatedPageTexts, rescuedImages);
+                    _pdfEditorialWriter.WritePdf(reconstructedPdfPath, finalizedPages, outputOcrPages, translatedPageTexts, rescuedImages, includeImages: true);
                 }
 
                 var done = Interlocked.Increment(ref completedOutputs);
@@ -417,11 +429,11 @@ public sealed class BookConversionPipeline
                 ReportOutputProgress(outputStart, "Creando Word...");
                 if (isTextOnly)
                 {
-                    _docxEditorialWriter.WriteDocx(reconstructedDocxPath, finalizedPages, ocrPages, translatedPageTexts, rescuedImages, includeImages: false);
+                    _docxEditorialWriter.WriteDocx(reconstructedDocxPath, finalizedPages, outputOcrPages, translatedPageTexts, rescuedImages, includeImages: false);
                 }
                 else
                 {
-                    _docxWriter.WriteCloneDocx(reconstructedDocxPath, finalizedPages, ocrPages, translatedPageTexts, rescuedImages);
+                    _docxEditorialWriter.WriteDocx(reconstructedDocxPath, finalizedPages, outputOcrPages, translatedPageTexts, rescuedImages, includeImages: true);
                 }
 
                 var done = Interlocked.Increment(ref completedOutputs);
@@ -448,7 +460,15 @@ public sealed class BookConversionPipeline
             outputTasks.Add(Task.Run(async () =>
             {
                 ReportOutputProgress(outputStart, "Creando CSV...");
-                await _csvWriter.WriteAsync(csvPath, organizedPageTexts, translatedPageTexts, cancellationToken);
+                if (isVisualElementsOnly)
+                {
+                    var visualManifestPages = BuildVisualElementsManifestPages(rescuedImages, pages.Count);
+                    await _csvWriter.WriteAsync(csvPath, visualManifestPages, visualManifestPages, cancellationToken);
+                }
+                else
+                {
+                    await _csvWriter.WriteAsync(csvPath, organizedPageTexts, translatedPageTexts, cancellationToken);
+                }
                 var done = Interlocked.Increment(ref completedOutputs);
                 ReportOutputProgress(outputStart + (done * outputStep), "CSV listo...");
             }, cancellationToken));
@@ -470,7 +490,10 @@ public sealed class BookConversionPipeline
             ReportOutputProgress(outputStart + (done * outputStep), "Vista de impresión lista...");
         }
 
-        await File.WriteAllTextAsync(textOutputPath, string.Join(Environment.NewLine + Environment.NewLine, translatedPageTexts), Encoding.UTF8, cancellationToken);
+        var textPayload = isVisualElementsOnly
+            ? BuildVisualElementsManifest(rescuedImages)
+            : string.Join(Environment.NewLine + Environment.NewLine, translatedPageTexts);
+        await File.WriteAllTextAsync(textOutputPath, textPayload, Encoding.UTF8, cancellationToken);
 
         var libraryRecord = new ConvertedBookRecord
         {
@@ -648,7 +671,7 @@ public sealed class BookConversionPipeline
         };
     }
 
-    private static int SelectPageProcessingParallelism(int pageCount)
+    private static int SelectPageProcessingParallelism(int pageCount, bool isPerfectHeavy)
     {
         if (pageCount <= 1)
         {
@@ -666,7 +689,19 @@ public sealed class BookConversionPipeline
             _ => 2
         };
 
-        return Math.Clamp(Math.Min(processorTarget, memoryTarget), 1, Math.Min(12, pageCount));
+        if (isPerfectHeavy)
+        {
+            var heavyMemoryTarget = hardware.TotalMemoryGb switch
+            {
+                >= 28 => 4,
+                >= 20 => 3,
+                >= 16 => 2,
+                _ => 1
+            };
+            return Math.Clamp(Math.Min(processorTarget, heavyMemoryTarget), 1, Math.Min(4, pageCount));
+        }
+
+        return Math.Clamp(Math.Min(processorTarget, memoryTarget), 1, Math.Min(10, pageCount));
     }
 
     private static int CountSelectedOutputs(OutputProfileOptions outputProfiles)
@@ -700,6 +735,7 @@ public sealed class BookConversionPipeline
         return mode switch
         {
             OutputReconstructionMode.PerfectHeavy => "Reconstrucción perfecta pesada",
+            OutputReconstructionMode.VisualElementsOnly => "Solo tablas y gráficos",
             OutputReconstructionMode.TextAndPhotos => "Texto y fotos",
             _ => "Extraer solo texto"
         };
@@ -710,8 +746,80 @@ public sealed class BookConversionPipeline
         return mode switch
         {
             OutputReconstructionMode.PerfectHeavy => "reconstruccion_perfecta_pesada",
+            OutputReconstructionMode.VisualElementsOnly => "solo_tablas_y_graficos",
             OutputReconstructionMode.TextAndPhotos => "texto_y_fotos",
             _ => "solo_texto"
+        };
+    }
+
+    private static string BuildVisualElementsManifest(IReadOnlyList<RescuedImageInfo> rescuedImages)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("Elementos visuales rescatados");
+        builder.AppendLine("Modo: Solo tablas y gráficos");
+        builder.AppendLine();
+
+        if (rescuedImages.Count == 0)
+        {
+            builder.AppendLine("No se detectaron tablas, gráficos, diagramas ni recortes visuales.");
+            return builder.ToString();
+        }
+
+        foreach (var image in rescuedImages
+                     .OrderBy(image => image.PageNumber)
+                     .ThenBy(image => image.Y)
+                     .ThenBy(image => image.X))
+        {
+            builder
+                .Append("Página ")
+                .Append(image.PageNumber)
+                .Append(" | Tipo: ")
+                .Append(NormalizeVisualKind(image.Kind))
+                .Append(" | Archivo: ")
+                .AppendLine(image.ImagePath);
+        }
+
+        return builder.ToString();
+    }
+
+    private static List<OcrPageResult> CreateBlankOcrPages(int pageCount)
+    {
+        return Enumerable.Range(0, Math.Max(1, pageCount))
+            .Select(_ => new OcrPageResult { FullText = string.Empty, Lines = [], Words = [] })
+            .ToList();
+    }
+
+    private static List<string> BuildVisualElementsManifestPages(IReadOnlyList<RescuedImageInfo> rescuedImages, int pageCount)
+    {
+        var pages = Enumerable.Range(0, Math.Max(1, pageCount))
+            .Select(_ => new StringBuilder())
+            .ToList();
+
+        foreach (var image in rescuedImages
+                     .OrderBy(image => image.PageNumber)
+                     .ThenBy(image => image.Y)
+                     .ThenBy(image => image.X))
+        {
+            var index = Math.Clamp(image.PageNumber - 1, 0, pages.Count - 1);
+            pages[index]
+                .Append("Tipo: ")
+                .Append(NormalizeVisualKind(image.Kind))
+                .Append(" | Archivo: ")
+                .AppendLine(image.ImagePath);
+        }
+
+        return pages.Select(page => page.ToString().Trim()).ToList();
+    }
+
+    private static string NormalizeVisualKind(string kind)
+    {
+        return kind.ToLowerInvariant() switch
+        {
+            "table" => "tabla",
+            "figure" => "figura/diagrama",
+            "chart" => "gráfico",
+            "formula" => "fórmula visual",
+            _ => string.IsNullOrWhiteSpace(kind) ? "elemento visual" : kind
         };
     }
 

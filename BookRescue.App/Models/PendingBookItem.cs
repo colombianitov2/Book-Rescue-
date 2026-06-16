@@ -77,7 +77,7 @@ public partial class PendingBookItem : ObservableObject
             return;
         }
 
-        if (Progress <= 1)
+        if (Progress <= 1 || elapsed < TimeSpan.FromSeconds(45))
         {
             EstimatedText = "Calculando";
             return;
@@ -101,8 +101,6 @@ public partial class PendingBookItem : ObservableObject
 
     private static string FormatDuration(TimeSpan value)
     {
-        return value.TotalHours >= 1
-            ? $"{(int)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00}"
-            : $"{value.Minutes:00}:{value.Seconds:00}";
+        return $"{(int)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00}";
     }
 }

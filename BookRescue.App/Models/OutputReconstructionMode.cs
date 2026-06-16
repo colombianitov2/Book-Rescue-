@@ -4,5 +4,6 @@ public enum OutputReconstructionMode
 {
     TextOnly,
     TextAndPhotos,
+    VisualElementsOnly,
     PerfectHeavy
 }

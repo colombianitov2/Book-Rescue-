@@ -344,13 +344,21 @@
                                   HeadersVisibility="Column"
                                   GridLinesVisibility="Horizontal"
                                   BorderBrush="#E8EAED"
-                                  BorderThickness="1">
+                                  BorderThickness="1"
+                                  MinColumnWidth="72"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                            <DataGrid.Resources>
+                                <Style TargetType="{x:Type TextBlock}">
+                                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                    <Setter Property="ToolTip" Value="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                                </Style>
+                            </DataGrid.Resources>
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Archivo" Binding="{Binding FileName}" Width="2.2*" />
-                                <DataGridTextColumn Header="Estado" Binding="{Binding Status}" Width="1*" />
-                                <DataGridTextColumn Header="Va" Binding="{Binding ElapsedText}" Width="0.75*" />
-                                <DataGridTextColumn Header="Estimado" Binding="{Binding EstimatedText}" Width="1.05*" />
-                                <DataGridTemplateColumn Header="Progreso" Width="1.2*">
+                                <DataGridTextColumn Header="Archivo" Binding="{Binding FileName}" Width="2.2*" MinWidth="220" />
+                                <DataGridTextColumn Header="Estado" Binding="{Binding Status}" Width="*" MinWidth="96" />
+                                <DataGridTextColumn Header="Va" Binding="{Binding ElapsedText}" Width="0.9*" MinWidth="92" />
+                                <DataGridTextColumn Header="Estimado" Binding="{Binding EstimatedText}" Width="1.2*" MinWidth="140" />
+                                <DataGridTemplateColumn Header="Progreso" Width="1.15*" MinWidth="120">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <ProgressBar Minimum="0"
@@ -360,7 +368,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="Detalle" Binding="{Binding Details}" Width="1.5*" />
+                                <DataGridTextColumn Header="Detalle" Binding="{Binding Details}" Width="2*" MinWidth="240" />
                             </DataGrid.Columns>
                         </DataGrid>
 
