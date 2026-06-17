@@ -7,26 +7,26 @@ Aplicacion WPF en .NET 10 para rescatar libros antiguos escaneados como foto.
 Desde PowerShell:
 
 ```powershell
-cd "D:\Extractor de texto\BookRescue"
+cd "D:\Proyectos de desarrollo de Software\BookRescue\_migrado\Extractor de texto\BookRescue"
 dotnet run --project ".\BookRescue.App\BookRescue.App.csproj"
 ```
 
 Ejecutable compilado:
 
 ```text
-D:\Extractor de texto\BookRescue\BookRescue.App\bin\Debug\net10.0-windows\BookRescue.App.exe
+D:\Proyectos de desarrollo de Software\BookRescue\_migrado\Extractor de texto\BookRescue\BookRescue.App\bin\Debug\net10.0-windows\BookRescue.App.exe
 ```
 
 Para publicar una version Release self-contained:
 
 ```powershell
-D:\Extractor de texto\BookRescue\publish-app.ps1
+D:\Proyectos de desarrollo de Software\BookRescue\_migrado\Extractor de texto\BookRescue\publish-app.ps1
 ```
 
 La salida publicada queda en el instalador portable:
 
 ```text
-D:\Extractor de texto\BookRescue\installer
+D:\Proyectos de desarrollo de Software\BookRescue\_migrado\Extractor de texto\BookRescue\installer
 ```
 
 ## Pruebas por consola
@@ -34,7 +34,7 @@ D:\Extractor de texto\BookRescue\installer
 La app tambien permite ejecutar conversiones controladas sin abrir la interfaz:
 
 ```powershell
-D:\Extractor de texto\BookRescue\BookRescue.App\bin\Release\net10.0-windows\BookRescue.App.exe `
+D:\Proyectos de desarrollo de Software\BookRescue\_migrado\Extractor de texto\BookRescue\BookRescue.App\bin\Release\net10.0-windows\BookRescue.App.exe `
   --convert "D:\ruta\entrada.pdf" `
   --out "D:\ruta\salida" `
   --ocr eng `
@@ -135,13 +135,13 @@ La app no necesita internet, Docker, Python externo ni Microsoft Word para tradu
 Ejecuta el instalador local:
 
 ```powershell
-D:\Extractor de texto\BookRescue\installer\Install-BookRescue.ps1
+D:\Proyectos de desarrollo de Software\BookRescue\_migrado\Extractor de texto\BookRescue\installer\Install-BookRescue.ps1
 ```
 
 O ejecuta portable sin instalar:
 
 ```powershell
-D:\Extractor de texto\BookRescue\installer\Run-Portable-BookRescue.ps1
+D:\Proyectos de desarrollo de Software\BookRescue\_migrado\Extractor de texto\BookRescue\installer\Run-Portable-BookRescue.ps1
 ```
 
 ## Salidas

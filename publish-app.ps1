@@ -7,6 +7,19 @@ $runtimeSource = Join-Path $root "runtime"
 $runtimeDest = Join-Path $publish "runtime"
 $requiredRuntimeFolders = @("tessdata", "translator", "argos-data", "ai", "typst", "python312", "document-ai-venv", "document-ai-models", "libreoffice")
 
+if (-not (Test-Path -LiteralPath $runtimeSource)) {
+    $current = Get-Item -LiteralPath $root
+    while ($null -ne $current) {
+        $candidate = Join-Path $current.FullName "runtime"
+        if ((Test-Path -LiteralPath $candidate) -and (Test-Path -LiteralPath (Join-Path $candidate "tessdata"))) {
+            $runtimeSource = $candidate
+            break
+        }
+
+        $current = $current.Parent
+    }
+}
+
 Set-Location -LiteralPath $root
 
 dotnet publish $project `
