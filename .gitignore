@@ -13,6 +13,12 @@ installer/
 runtime/
 BookRescue.App/bin/
 BookRescue.App/obj/
+*.gguf
+*.onnx
+*.safetensors
+*.pt
+*.pth
+*.ckpt
 
 # Generated conversion/test outputs
 verification/
@@ -34,6 +40,16 @@ typst-smoke-test/
 *.sln.docstates
 .vs/
 .vscode/
+
+# Local secrets and signing material
+.env
+.env.*
+!.env.example
+secrets.json
+*.pem
+*.key
+*.pfx
+*.p12
 
 # Logs and diagnostics
 *.log

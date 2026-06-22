@@ -2,6 +2,14 @@
 
 Aplicacion WPF en .NET 10 para rescatar libros antiguos escaneados como foto.
 
+## Estructura local
+
+- Codigo fuente: `D:\Proyectos de desarrollo de Software\BookRescue\_migrado\Extractor de texto\BookRescue`.
+- Paquete portable: `D:\Proyectos de desarrollo de Software\BookRescue`.
+- `runtime`, `installer`, compilados y salidas de verificacion no se versionan en Git.
+
+Documentacion tecnica: `docs/ARCHITECTURE.md`, `docs/ROADMAP.md` y `docs/TEST_PLAN.md`.
+
 ## Ejecutar
 
 Desde PowerShell:
@@ -48,6 +56,7 @@ Modos aceptados por `--mode`:
 
 - `text`: Extraer solo texto.
 - `photos`: Texto y fotos.
+- `visual`: Solo tablas y gráficos.
 - `heavy`: Reconstrucción perfecta pesada.
 
 En modo `heavy`, `MaximumQuality` se activa internamente y la IA local se usa automaticamente salvo que se indique `--no-ai`.
@@ -64,7 +73,7 @@ En modo `heavy`, `MaximumQuality` se activa internamente y la IA local se usa au
 - Mantiene una biblioteca persistente en `%LOCALAPPDATA%\BookRescue\library.json`.
 - Oculta OCR, traductor y dependencias tecnicas; la app las prepara automaticamente.
 - La traduccion queda desactivada por defecto; si el usuario la activa, intenta traducir hacia el idioma de salida.
-- Permite elegir tres modos de reconstruccion: Extraer solo texto, Texto y fotos o Reconstrucción perfecta pesada.
+- Permite elegir cuatro modos de reconstruccion: Extraer solo texto, Texto y fotos, Solo tablas y gráficos o Reconstrucción perfecta pesada.
 - Incluye boton de actualizacion para consultar el repositorio oficial cuando se publiquen versiones.
 
 ## Modos de reconstruccion
@@ -76,6 +85,10 @@ Extrae texto limpio y organizado. No inserta portada, fotos, figuras ni recortes
 ### Texto y fotos
 
 Modo por defecto. Extrae texto y fotos, y organiza el documento con fuentes predeterminadas, estilo de libro, titulos, subtitulos, parrafos, tablas, formulas sencillas y figuras rescatadas. Las salidas se generan con el sufijo `_texto_y_fotos`.
+
+### Solo tablas y gráficos
+
+Extrae tablas, gráficos, diagramas, fórmulas visuales y otros elementos no textuales. Omite el texto plano del documento final y genera salidas con el sufijo `_solo_tablas_y_graficos`.
 
 ### Reconstrucción perfecta pesada
 
@@ -163,6 +176,15 @@ Cada libro convertido crea una carpeta con el nombre del libro y fecha/hora.
 - `*_texto_y_fotos.docx` si Word esta seleccionado
 - `*_texto_y_fotos.epub` si ePub esta seleccionado
 - `*_texto_y_fotos.csv` si CSV esta seleccionado
+- `imagenes_rescatadas`
+
+### Solo tablas y gráficos
+
+- `*_solo_tablas_y_graficos.txt`
+- `*_solo_tablas_y_graficos.pdf` si PDF esta seleccionado
+- `*_solo_tablas_y_graficos.docx` si Word esta seleccionado
+- `*_solo_tablas_y_graficos.epub` si ePub esta seleccionado
+- `*_solo_tablas_y_graficos.csv` si CSV esta seleccionado
 - `imagenes_rescatadas`
 
 ### Reconstrucción perfecta pesada
