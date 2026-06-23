@@ -137,6 +137,14 @@ public sealed class PdfEditorialWriter
         IReadOnlyList<RescuedImageInfo> pageImages,
         int pageIndex)
     {
+        var pageVisualFallback = pageImages.FirstOrDefault(image =>
+            image.Kind.Equals("page-visual-fallback", StringComparison.OrdinalIgnoreCase));
+        if (pageVisualFallback is not null)
+        {
+            AddImage(document, pageVisualFallback);
+            return;
+        }
+
         var sourceBlocks = DocumentLayoutService.BuildTextBlocks(page, ocrPage);
         var paragraphs = DocumentLayoutService.SplitParagraphs(text);
         var blocks = PageBlockClassifier.Classify(page, sourceBlocks, paragraphs, pageIndex);
@@ -278,11 +286,22 @@ public sealed class PdfEditorialWriter
         }
 
         var image = new Image(ImageDataFactory.Create(imageInfo.ImagePath));
-        image.SetMaxWidth(PageSize.LETTER.GetWidth() - (EditorialStyleProfile.MarginPoints * 2));
-        image.SetAutoScaleHeight(true);
+        var maxWidth = PageSize.LETTER.GetWidth() - (EditorialStyleProfile.MarginPoints * 2);
+        var isPageVisualFallback = imageInfo.Kind.Equals("page-visual-fallback", StringComparison.OrdinalIgnoreCase);
+        if (isPageVisualFallback)
+        {
+            var maxHeight = PageSize.LETTER.GetHeight() - (EditorialStyleProfile.MarginPoints * 2);
+            image.ScaleToFit(maxWidth, maxHeight);
+        }
+        else
+        {
+            image.SetMaxWidth(maxWidth);
+            image.SetAutoScaleHeight(true);
+        }
+
         image.SetHorizontalAlignment(HorizontalAlignment.CENTER);
-        image.SetMarginTop(8);
-        image.SetMarginBottom(EditorialStyleProfile.FigureSpaceAfter);
+        image.SetMarginTop(isPageVisualFallback ? 0 : 8);
+        image.SetMarginBottom(isPageVisualFallback ? 0 : EditorialStyleProfile.FigureSpaceAfter);
         document.Add(image);
     }
 }

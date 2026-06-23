@@ -133,6 +133,14 @@ public sealed class DocxEditorialWriter
         IReadOnlyList<RescuedImageInfo> pageImages,
         int pageIndex)
     {
+        var pageVisualFallback = pageImages.FirstOrDefault(image =>
+            image.Kind.Equals("page-visual-fallback", StringComparison.OrdinalIgnoreCase));
+        if (pageVisualFallback is not null)
+        {
+            AppendImagePath(mainPart, body, pageVisualFallback.ImagePath, maxWidthInches: 5.9d, maxHeightInches: 8.6d, spacingBeforeTwips: 0);
+            return;
+        }
+
         var sourceBlocks = DocumentLayoutService.BuildTextBlocks(page, ocrPage);
         var paragraphs = DocumentLayoutService.SplitParagraphs(text);
         var blocks = PageBlockClassifier.Classify(page, sourceBlocks, paragraphs, pageIndex);
@@ -148,7 +156,14 @@ public sealed class DocxEditorialWriter
                      .OrderBy(image => image.Y)
                      .ThenBy(image => image.X))
         {
-            AppendImagePath(mainPart, body, image.ImagePath, maxWidthInches: 5.9d, maxHeightInches: 4.2d, spacingBeforeTwips: 120);
+            var isPageVisualFallback = image.Kind.Equals("page-visual-fallback", StringComparison.OrdinalIgnoreCase);
+            AppendImagePath(
+                mainPart,
+                body,
+                image.ImagePath,
+                maxWidthInches: 5.9d,
+                maxHeightInches: isPageVisualFallback ? 8.6d : 4.2d,
+                spacingBeforeTwips: isPageVisualFallback ? 0 : 120);
         }
     }
 
