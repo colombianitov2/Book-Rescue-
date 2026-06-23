@@ -25,6 +25,10 @@ Before deleting portable backups, publishing, or accepting future portable updat
 
 The script uses the portable executable, the small `smoke-test\sample_scan.png` input, and all four reconstruction modes. It saves per-mode logs, generated outputs, and `mode-matrix-summary.txt` under `verification\portable-mode-matrix-YYYYMMDD-HHMMSS`.
 
+## Real scan quality validation
+
+The smoke matrix validates technical operation only. Before judging reconstruction quality or deleting a rollback backup, validate at least one small real scanned or damaged page using the workflow in `docs/validation/REAL_SCAN_VALIDATION.md`. Keep the portable rollback backup until real scan validation passes.
+
 ## Heavy-mode acceptance
 
 - Use approved real and synthetic samples.

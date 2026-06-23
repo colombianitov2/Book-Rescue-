@@ -23,6 +23,8 @@ BookRescue.App/obj/
 # Generated conversion/test outputs
 verification/
 smoke-test/
+validation-inputs/
+validation-output/
 *-output/
 *output*/
 comparacion_visual_reconstruida/
@@ -57,6 +59,8 @@ secrets.json
 *.temp
 *.bak
 *.pdb
+*.tif
+*.tiff
 
 # OS files
 Thumbs.db
