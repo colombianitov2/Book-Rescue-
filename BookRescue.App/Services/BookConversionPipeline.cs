@@ -118,19 +118,25 @@ public sealed class BookConversionPipeline
         await _tessdata.EnsureLanguagePacksAsync(ocrLanguages, cancellationToken: cancellationToken);
 
         Directory.CreateDirectory(outputRoot);
-        var runFolder = CreateRunFolder(inputPath, outputRoot);
+        var runFolder = SafeConversionPaths.CreateRunFolder(outputRoot);
         var internalFolder = Path.Combine(runFolder, "_procesamiento_interno");
+        var inputStagingFolder = Path.Combine(internalFolder, "input-staging");
         var sourcePagesFolder = Path.Combine(internalFolder, "source-pages");
         var restoredPagesFolder = Path.Combine(internalFolder, "restored-pages");
         var rescuedImagesFolder = Path.Combine(runFolder, "imagenes_rescatadas");
         Directory.CreateDirectory(internalFolder);
+        Directory.CreateDirectory(inputStagingFolder);
         Directory.CreateDirectory(sourcePagesFolder);
         Directory.CreateDirectory(restoredPagesFolder);
         Directory.CreateDirectory(rescuedImagesFolder);
         HideDirectory(internalFolder);
 
+        var stagedInputPath = SafeConversionPaths.StageInputForNativeProcessing(inputPath, inputStagingFolder);
+        var baseOutputName = SafeConversionPaths.CreateOutputBaseName(inputPath);
+        await SafeConversionPaths.WriteInputMetadataAsync(runFolder, inputPath, stagedInputPath, baseOutputName, cancellationToken);
+
         progress?.Report(new ConversionProgressUpdate(prepareEnd, "Extrayendo páginas del libro..."));
-        var pages = await ExtractPagesAsync(inputPath, sourcePagesFolder, outputProfiles.MaximumQuality, extractStart, extractEnd - extractStart, progress, cancellationToken);
+        var pages = await ExtractPagesAsync(stagedInputPath, sourcePagesFolder, outputProfiles.MaximumQuality, extractStart, extractEnd - extractStart, progress, cancellationToken);
         if (pages.Count == 0)
         {
             throw new InvalidOperationException("No se encontraron páginas para procesar.");
@@ -233,7 +239,7 @@ public sealed class BookConversionPipeline
         if (allowDocumentAi && _documentAi.IsAvailable)
         {
             progress?.Report(new ConversionProgressUpdate(aiStart, "Analizando estructura inteligente del libro..."));
-            var analysis = await _documentAi.AnalyzeAsync(inputPath, runFolder, finalizedPages, rescuedImagesFolder, cancellationToken);
+            var analysis = await _documentAi.AnalyzeAsync(stagedInputPath, runFolder, finalizedPages, rescuedImagesFolder, cancellationToken);
             if (analysis is not null)
             {
                 AddUniqueImages(rescuedImages, analysis.RescuedImages);
@@ -338,7 +344,6 @@ public sealed class BookConversionPipeline
             progress?.Report(new ConversionProgressUpdate(translationEnd, translationApplied ? "Traducción terminada..." : "Texto listo sin traducción..."));
         }
 
-        var baseOutputName = Path.GetFileNameWithoutExtension(inputPath);
         var modeSuffix = GetModeOutputSuffix(reconstructionMode);
         var modeName = GetModeProgressName(reconstructionMode);
         var textOutputPath = Path.Combine(runFolder, $"{baseOutputName}_{modeSuffix}.txt");
@@ -995,20 +1000,6 @@ public sealed class BookConversionPipeline
         catch
         {
         }
-    }
-
-    private static string CreateRunFolder(string inputPath, string outputRoot)
-    {
-        var safeName = Path.GetFileNameWithoutExtension(inputPath);
-        foreach (var invalidChar in Path.GetInvalidFileNameChars())
-        {
-            safeName = safeName.Replace(invalidChar, '_');
-        }
-
-        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        var folder = Path.Combine(outputRoot, $"{safeName}_{timestamp}");
-        Directory.CreateDirectory(folder);
-        return folder;
     }
 
     private static string NormalizeLanguage(string value, string fallback)
