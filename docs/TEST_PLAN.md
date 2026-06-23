@@ -15,6 +15,16 @@ For each mode, verify output suffixes and selected TXT/PDF/DOCX/ePub/CSV files:
 - `VisualElementsOnly`: no plain body text; visual manifest and selected formats are generated.
 - `PerfectHeavy`: PDF/DOCX plus JSON report and required diagnostics.
 
+## Portable smoke matrix
+
+Before deleting portable backups, publishing, or accepting future portable updates, run:
+
+```powershell
+.\tools\run-portable-smoke-matrix.ps1
+```
+
+The script uses the portable executable, the small `smoke-test\sample_scan.png` input, and all four reconstruction modes. It saves per-mode logs, generated outputs, and `mode-matrix-summary.txt` under `verification\portable-mode-matrix-YYYYMMDD-HHMMSS`.
+
 ## Heavy-mode acceptance
 
 - Use approved real and synthetic samples.
