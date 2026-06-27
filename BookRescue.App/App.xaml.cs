@@ -6,6 +6,8 @@ namespace BookRescue.App;
 
 public partial class App : Application
 {
+    private const string DefaultOutputFolder = @"D:\Pruebas con apps";
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         ConfigureCpuLimits();
@@ -76,7 +78,7 @@ public partial class App : Application
         out bool enableTranslation)
     {
         inputPath = string.Empty;
-        outputFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BookRescue");
+        outputFolder = DefaultOutputFolder;
         ocrLanguages = "eng";
         outputLanguage = "es";
         useLocalAiAssistance = false;
@@ -115,6 +117,8 @@ public partial class App : Application
 
     private static async Task RunCliConversionAsync(string inputPath, string outputFolder, string ocrLanguages, string outputLanguage, bool useLocalAiAssistance, OutputProfileOptions outputProfiles, bool enableTranslation)
     {
+        Directory.CreateDirectory(outputFolder);
+
         using var tessdata = new TessdataBootstrapper();
         using var languageDetection = new LanguageDetectionService();
         using var translation = new LibreTranslateService();

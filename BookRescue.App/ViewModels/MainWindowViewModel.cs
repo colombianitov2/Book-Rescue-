@@ -14,6 +14,8 @@ namespace BookRescue.App.ViewModels;
 
 public partial class MainWindowViewModel : ObservableObject, IDisposable
 {
+    private const string DefaultOutputFolder = @"D:\Pruebas con apps";
+
     private readonly TessdataBootstrapper _tessdata = new();
     private readonly OcrExtractionService _ocr;
     private readonly LanguageDetectionService _languageDetection = new();
@@ -44,10 +46,14 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
             _localAi,
             _documentAi);
 
-        OutputFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BookRescue");
+        OutputFolder = DefaultOutputFolder;
         StatusMessage = HardwareProfile.IsCapable
             ? "Listo. Recursos preparados para reconstrucción local."
             : HardwareProfile.MinimumHardwareMessage;
+        if (!TryEnsureOutputFolderExists(OutputFolder, out var outputFolderError))
+        {
+            StatusMessage = $"{StatusMessage} No se pudo preparar el destino predeterminado: {outputFolderError}";
+        }
 
         _timingTimer = new DispatcherTimer
         {
@@ -128,7 +134,16 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool isAiProcessing;
 
+    [ObservableProperty]
+    private bool isPaused;
+
     public string CreditsText => "Créditos: Ernesto Pernett- Ingeniero Mecánico · Codex";
+
+    public string PauseResumeButtonText => IsPaused ? "Continuar" : "Pausar";
+
+    public string PauseResumeToolTip => IsPaused
+        ? "Continúa procesando los archivos pendientes."
+        : "Pausa la cola de forma segura antes del siguiente archivo o etapa cooperativa.";
 
     public string ReconstructionModeHelp => SelectedReconstructionMode switch
     {
@@ -231,17 +246,36 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (!TryEnsureOutputFolderExists(OutputFolder, out var outputFolderError))
+        {
+            StatusMessage = $"No se pudo preparar la carpeta destino: {outputFolderError}";
+            return;
+        }
+
         IsBusy = true;
         IsAiProcessing = false;
+        IsPaused = false;
+        RestorePausedItemsToPending();
         GlobalProgress = 0;
         _rescueCancellation?.Dispose();
         _rescueCancellation = new CancellationTokenSource();
+        var cancellationToken = _rescueCancellation.Token;
+        TogglePauseResumeCommand.NotifyCanExecuteChanged();
 
         try
         {
             var total = PendingBooks.Count;
             for (var index = 0; index < PendingBooks.Count; index++)
             {
+                await WaitWhilePausedAsync(cancellationToken);
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    MarkRemainingPendingItemsCancelled(index);
+                    StatusMessage = "Proceso cancelado. La cola restante quedó cancelada.";
+                    break;
+                }
+
                 var item = PendingBooks[index];
                 item.Status = "Procesando";
                 item.Progress = 0;
@@ -284,21 +318,22 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
                         translationEndpoint,
                         translationApiKey,
                         progress,
-                        _rescueCancellation.Token));
+                        cancellationToken));
 
                     item.Status = "Completado";
                     item.Details = result.TranslationApplied ? "Traducido y guardado." : "Guardado.";
                     item.MarkCompleted();
                     result.LibraryRecord.Status = item.Status;
-                    await _libraryStore.SaveOrUpdateAsync(result.LibraryRecord, _rescueCancellation.Token);
+                    await _libraryStore.SaveOrUpdateAsync(result.LibraryRecord, cancellationToken);
                     LibraryItems.Insert(0, new LibraryItemViewModel(result.LibraryRecord));
                 }
                 catch (OperationCanceledException)
                 {
                     item.Status = "Cancelado";
-                    item.Details = "Proceso cancelado.";
+                    item.Details = "Proceso cancelado. Algunas etapas nativas pueden terminar antes de detenerse.";
                     item.MarkStopped("Cancelado");
-                    StatusMessage = "Proceso cancelado.";
+                    MarkRemainingPendingItemsCancelled(index + 1);
+                    StatusMessage = "Proceso cancelado. La cola restante quedó cancelada.";
                     break;
                 }
                 catch (Exception ex)
@@ -318,11 +353,13 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         finally
         {
             IsAiProcessing = false;
+            IsPaused = false;
             IsBusy = false;
             _rescueCancellation?.Dispose();
             _rescueCancellation = null;
             StartRescueCommand.NotifyCanExecuteChanged();
             CancelRescueCommand.NotifyCanExecuteChanged();
+            TogglePauseResumeCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -339,7 +376,7 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
             return;
         }
 
-        StatusMessage = "Cancelando proceso...";
+        StatusMessage = "Cancelando proceso... se detendrá al finalizar la etapa actual si el motor nativo no puede interrumpirse.";
         _rescueCancellation?.Cancel();
         CancelRescueCommand.NotifyCanExecuteChanged();
     }
@@ -347,6 +384,34 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
     private bool CanCancelRescue()
     {
         return IsBusy && _rescueCancellation is not null && !_rescueCancellation.IsCancellationRequested;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanTogglePauseResume))]
+    private void TogglePauseResume()
+    {
+        if (!IsBusy)
+        {
+            return;
+        }
+
+        IsPaused = !IsPaused;
+        if (IsPaused)
+        {
+            MarkPendingItemsPaused();
+            StatusMessage = "Pausa solicitada. La conversión activa terminará su etapa nativa actual antes de pausar la cola.";
+        }
+        else
+        {
+            RestorePausedItemsToPending();
+            StatusMessage = "Continuando cola de conversión...";
+        }
+
+        TogglePauseResumeCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanTogglePauseResume()
+    {
+        return IsBusy;
     }
 
     public void ShowHardwareWarningIfNeeded(bool force = false)
@@ -385,11 +450,34 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         }
     }
 
-    [RelayCommand]
-    private void ClearSessionLibrary()
+    [RelayCommand(CanExecute = nameof(CanClearLibrary))]
+    private async Task ClearLibraryAsync()
     {
+        if (LibraryItems.Count == 0)
+        {
+            StatusMessage = "La biblioteca visible ya está vacía.";
+            return;
+        }
+
+        var confirmation = MessageBox.Show(
+            "Esto solo limpiará la lista de la biblioteca. No borrará los archivos generados. ¿Continuar?",
+            "BookRescue",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        await _libraryStore.ClearAsync();
         LibraryItems.Clear();
-        StatusMessage = "Vista de biblioteca limpia. El historial persistente se conserva.";
+        SelectedLibraryItem = null;
+        StatusMessage = "Biblioteca limpia. No se eliminaron archivos generados.";
+    }
+
+    private bool CanClearLibrary()
+    {
+        return !IsBusy && !IsPaused;
     }
 
     [RelayCommand]
@@ -417,12 +505,37 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void OpenSelectedOutputFolder()
     {
-        if (SelectedLibraryItem is null)
+        if (SelectedLibraryItem is { Status: "Completado" } selected &&
+            !string.IsNullOrWhiteSpace(selected.OutputFolder))
         {
+            if (TryOpenPath(selected.OutputFolder, "La carpeta de salida del libro seleccionado ya no existe."))
+            {
+                StatusMessage = $"Carpeta de salida abierta: {selected.OutputFolder}";
+            }
+
             return;
         }
 
-        OpenPath(SelectedLibraryItem.OutputFolder);
+        OpenOutputFolderRoot();
+    }
+
+    [RelayCommand]
+    private void OpenOutputFolderRoot()
+    {
+        if (!TryEnsureOutputFolderExists(OutputFolder, out var outputFolderError))
+        {
+            MessageBox.Show(
+                $"No se pudo preparar la carpeta destino: {outputFolderError}",
+                "BookRescue",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        if (TryOpenPath(OutputFolder, "La carpeta destino no existe. Selecciona o crea una carpeta destino válida."))
+        {
+            StatusMessage = $"Destino abierto: {OutputFolder}";
+        }
     }
 
     [RelayCommand]
@@ -523,22 +636,121 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
 
     private static void OpenPath(string path)
     {
+        TryOpenPath(path, "La ruta ya no existe.");
+    }
+
+    private static bool TryOpenPath(string path, string missingMessage)
+    {
         if (string.IsNullOrWhiteSpace(path) || (!File.Exists(path) && !Directory.Exists(path)))
         {
-            MessageBox.Show("La ruta ya no existe.", "BookRescue", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(missingMessage, "BookRescue", MessageBoxButton.OK, MessageBoxImage.Information);
+            return false;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(path)
+            {
+                UseShellExecute = true
+            });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLogService.Log(ex, $"Abrir ruta: {path}");
+            MessageBox.Show("No se pudo abrir la ruta seleccionada.", "BookRescue", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+    }
+
+    private static bool TryEnsureOutputFolderExists(string path, out string error)
+    {
+        error = string.Empty;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            error = "la ruta está vacía.";
+            return false;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(path);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            AppLogService.Log(ex, $"Preparar carpeta destino: {path}");
+            return false;
+        }
+    }
+
+    private void MarkRemainingPendingItemsCancelled(int startIndex)
+    {
+        for (var i = startIndex; i < PendingBooks.Count; i++)
+        {
+            var pending = PendingBooks[i];
+            if (pending.Status is not ("Pendiente" or "Pausado"))
+            {
+                continue;
+            }
+
+            pending.Status = "Cancelado";
+            pending.Details = "No iniciado por cancelación.";
+            pending.MarkStopped("Cancelado");
+        }
+    }
+
+    private async Task WaitWhilePausedAsync(CancellationToken cancellationToken)
+    {
+        if (!IsPaused)
+        {
             return;
         }
 
-        Process.Start(new ProcessStartInfo(path)
+        MarkPendingItemsPaused();
+        StatusMessage = "Pausado. Presiona Continuar para reanudar la cola.";
+        while (IsPaused)
         {
-            UseShellExecute = true
-        });
+            await Task.Delay(300, cancellationToken);
+        }
+
+        RestorePausedItemsToPending();
+        StatusMessage = "Continuando cola de conversión...";
+    }
+
+    private void MarkPendingItemsPaused()
+    {
+        foreach (var pending in PendingBooks.Where(x => x.Status == "Pendiente"))
+        {
+            pending.Status = "Pausado";
+            pending.Details = "En espera. Presiona Continuar para procesar.";
+        }
+    }
+
+    private void RestorePausedItemsToPending()
+    {
+        foreach (var paused in PendingBooks.Where(x => x.Status == "Pausado"))
+        {
+            paused.Status = "Pendiente";
+            paused.Details = string.Empty;
+        }
     }
 
     partial void OnIsBusyChanged(bool value)
     {
         StartRescueCommand.NotifyCanExecuteChanged();
         CancelRescueCommand.NotifyCanExecuteChanged();
+        TogglePauseResumeCommand.NotifyCanExecuteChanged();
+        ClearLibraryCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnIsPausedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(PauseResumeButtonText));
+        OnPropertyChanged(nameof(PauseResumeToolTip));
+        TogglePauseResumeCommand.NotifyCanExecuteChanged();
+        ClearLibraryCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnUseLocalAiAssistanceChanged(bool value)

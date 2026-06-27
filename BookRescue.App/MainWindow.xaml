@@ -246,13 +246,20 @@
 
                     <StackPanel Grid.Column="0">
                         <TextBlock Style="{StaticResource SectionTitle}" Text="Destino" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Style="{StaticResource SubtleText}"
+                                   Text="Raíz donde se crearán las carpetas de salida." />
                         <Grid Margin="0,10,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBox Text="{Binding OutputFolder, UpdateSourceTrigger=PropertyChanged}" />
                             <Button Grid.Column="1"
+                                    Content="Abrir"
+                                    Command="{Binding OpenOutputFolderRootCommand}" />
+                            <Button Grid.Column="2"
                                     Content="Cambiar"
                                     Command="{Binding BrowseOutputFolderCommand}" />
                         </Grid>
@@ -375,7 +382,9 @@
                         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
                             <Button Content="Quitar" Command="{Binding RemoveSelectedBookCommand}" />
                             <Button Content="Limpiar" Command="{Binding ClearCompletedCommand}" />
-                            <Button Content="Cancelar" Command="{Binding CancelRescueCommand}" />
+                            <Button Content="{Binding PauseResumeButtonText}"
+                                    Command="{Binding TogglePauseResumeCommand}"
+                                    ToolTip="{Binding PauseResumeToolTip}" />
                             <Button Content="Rescatar"
                                     Command="{Binding StartRescueCommand}"
                                     Style="{StaticResource GoogleBlueButton}" />
@@ -402,8 +411,9 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Style="{StaticResource SectionTitle}" Text="Biblioteca" />
                             <Button Grid.Column="1"
-                                    Content="Ocultar lista"
-                                    Command="{Binding ClearSessionLibraryCommand}" />
+                                    Content="Limpiar biblioteca"
+                                    Command="{Binding ClearLibraryCommand}"
+                                    ToolTip="Limpia la lista e historial local de la biblioteca sin borrar archivos generados." />
                         </Grid>
 
                         <ListView Grid.Row="2"
@@ -416,7 +426,7 @@
                                     <GridViewColumn Header="Libro" Width="270" DisplayMemberBinding="{Binding SourceFileName}" />
                                     <GridViewColumn Header="Fecha" Width="132" DisplayMemberBinding="{Binding CreatedAtLocal}" />
                                     <GridViewColumn Header="Formatos" Width="140" DisplayMemberBinding="{Binding AvailableOutputs}" />
-                                    <GridViewColumn Header="Carpeta" Width="390" DisplayMemberBinding="{Binding OutputFolder}" />
+                                    <GridViewColumn Header="Carpeta de salida" Width="390" DisplayMemberBinding="{Binding OutputFolder}" />
                                 </GridView>
                             </ListView.View>
                         </ListView>

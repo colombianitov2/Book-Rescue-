@@ -79,6 +79,20 @@ public sealed class LocalLibraryStore
         }
     }
 
+    public async Task ClearAsync(CancellationToken cancellationToken = default)
+    {
+        await _sync.WaitAsync(cancellationToken);
+        try
+        {
+            await using var writeStream = File.Create(StorageFilePath);
+            await JsonSerializer.SerializeAsync(writeStream, Array.Empty<ConvertedBookRecord>(), JsonOptions, cancellationToken);
+        }
+        finally
+        {
+            _sync.Release();
+        }
+    }
+
     private static bool SameNonEmptyPath(string left, string right)
     {
         return !string.IsNullOrWhiteSpace(left) &&
